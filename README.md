@@ -16,6 +16,7 @@ A modular, threaded manga downloader for MangaBuddy with an interactive CLI and 
 *   **Parallel Downloads:** Multi-threaded chapter downloads with concurrent image downloads for speed
 *   **Robust Error Handling:** Retry mechanisms and proper error messages for failed downloads
 *   **Cloudflare Bypass:** Uses Playwright and cloudscraper to handle Cloudflare protection
+*   **CBZ Metadata:** Automatically embeds a `ComicInfo.xml` file with manga details (title, summary, genre, etc.) into CBZ files.
 
 ## 🚀 Installation
 
@@ -90,6 +91,7 @@ mangabuddy_downloader/
 │   ├── scraper.py   # Scrapes manga title and chapter list using Playwright
 │   ├── download.py  # Handles threaded chapter and image downloads using cloudscraper
 │   ├── converter.py # Converts images to PDF or CBZ
+│   ├── metadata.py  # Generates ComicInfo.xml for CBZ files
 │   └── utils.py     # Helper functions
 ├── config.py        # Configuration settings
 ├── requirements.txt # Python dependencies

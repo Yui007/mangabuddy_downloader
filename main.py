@@ -30,9 +30,9 @@ async def main_async(): # New async main function
             continue
 
         with console.status("[bold yellow]Scraping manga details...[/bold yellow]", spinner="dots"):
-            manga_title, chapters = get_manga_details(manga_url)
+            manga_metadata, chapters = get_manga_details(manga_url)
 
-        if not manga_title or not chapters:
+        if not manga_metadata or not chapters:
             console.print("[bold red]Could not retrieve manga details. Please check the URL or your internet connection.[/bold red]")
             # Allow user to try again with a different URL
             if not Confirm.ask("[bold yellow]Do you want to try another URL?[/bold yellow]", default=True):
@@ -40,6 +40,7 @@ async def main_async(): # New async main function
         else:
             break
 
+    manga_title = manga_metadata.get("Title", "Unknown Title")
     console.print(f"\n[bold green]Manga Title:[/bold green] {manga_title}")
     console.print(f"[bold green]Found {len(chapters)} chapters.[/bold green]")
     
@@ -162,7 +163,7 @@ async def main_async(): # New async main function
                 if conversion_format == "pdf":
                     convert_images_to_pdf(image_paths, output_path)
                 elif conversion_format == "cbz":
-                    convert_images_to_cbz(image_paths, output_path)
+                    convert_images_to_cbz(image_paths, output_path, manga_metadata)
                 
                 # Use the pre-determined delete choice
                 if delete_images_after_conversion:

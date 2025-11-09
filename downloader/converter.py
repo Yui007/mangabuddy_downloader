@@ -2,6 +2,7 @@ import os
 from PIL import Image
 import zipfile
 from rich.console import Console
+from .metadata import create_comic_info_xml
 
 console = Console()
 
@@ -32,9 +33,10 @@ def convert_images_to_pdf(image_paths: list, output_path: str):
         console.print(f"[bold red]Error converting to PDF:[/bold red] {e}")
         return False
 
-def convert_images_to_cbz(image_paths: list, output_path: str):
+def convert_images_to_cbz(image_paths: list, output_path: str, metadata: dict | None = None):
     """
-    Converts a list of image paths to a CBZ (Comic Book Zip) file.
+    Converts a list of image paths to a CBZ (Comic Book Zip) file
+    and includes a ComicInfo.xml file if metadata is provided.
     """
     if not image_paths:
         console.print("[bold red]No images to convert to CBZ.[/bold red]")
@@ -44,6 +46,11 @@ def convert_images_to_cbz(image_paths: list, output_path: str):
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as cbz_file:
             for img_path in image_paths:
                 cbz_file.write(img_path, os.path.basename(img_path))
+            
+            if metadata:
+                xml_content = create_comic_info_xml(metadata)
+                cbz_file.writestr("ComicInfo.xml", xml_content)
+
         console.print(f"[bold green]Successfully converted to CBZ:[/bold green] {output_path}")
         return True
     except Exception as e:

@@ -26,38 +26,61 @@ BASE_HEADERS = {
 
 def get_manga_details(url: str):
     """
-    Scrapes manga title and chapter URLs from a MangaBuddy URL.
+    Scrapes manga title, chapter URLs, and other metadata from a MangaBuddy URL.
     """
     try:
-        # Add Referer header dynamically for requests.get
         headers = BASE_HEADERS.copy()
         headers["Referer"] = url
         response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raise an exception for HTTP errors
+        response.raise_for_status()
 
         soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Extract manga title
+        
+        # Basic details
         name_box = soup.find('div', class_='name box')
-        title_tag = name_box.find('h1') if name_box else None
-        manga_title = title_tag.get_text(strip=True) if title_tag else "Unknown Title"
+        manga_title = name_box.find('h1').get_text(strip=True) if name_box else "Unknown Title"
+
+        # Metadata dictionary
+        metadata = {
+            "Title": manga_title,
+            "Web": url,
+            "Series": manga_title,
+            "Manga": "Yes"  # Assuming it's always a manga
+        }
+
+        # Detailed info box
+        detail_box = soup.find('div', class_='detail-box')
+        if detail_box:
+            # Summary
+            summary_div = detail_box.find('div', class_='summary')
+            if summary_div:
+                metadata["Summary"] = summary_div.get_text(strip=True)
+
+            # Other details
+            for p_tag in detail_box.find_all('p'):
+                strong_tag = p_tag.find('strong')
+                if strong_tag:
+                    key = strong_tag.get_text(strip=True).replace(':', '')
+                    value = p_tag.get_text(strip=True).replace(strong_tag.get_text(strip=True), '').strip()
+                    
+                    if key == "Author(s)":
+                        metadata["Writer"] = value
+                    elif key == "Genre(s)":
+                        metadata["Genre"] = value
 
         # Extract chapter URLs
         chapter_list_ul = soup.find('ul', class_='chapter-list', id='chapter-list')
         chapters = []
         if chapter_list_ul:
-            for a_tag in chapter_list_ul.find_all('a', href=True): # Ensure href attribute exists
+            for a_tag in chapter_list_ul.find_all('a', href=True):
                 chapter_url = a_tag.get('href')
-                chapter_name_tag = a_tag.find('strong', class_='chapter-title')
-                chapter_name = chapter_name_tag.get_text(strip=True) if chapter_name_tag else "Unknown Chapter"
-                if chapter_url: # Only add if URL is present
-                    # MangaBuddy chapter URLs are relative, prepend base URL
+                chapter_name = a_tag.find('strong', class_='chapter-title').get_text(strip=True)
+                if chapter_url:
                     chapters.append({"name": chapter_name, "url": f"https://mangabuddy.com{chapter_url}"})
         
-        # MangaBuddy chapters are usually listed in descending order, reverse to get ascending.
         chapters.reverse()
 
-        return manga_title, chapters
+        return metadata, chapters
 
     except requests.exceptions.RequestException as e:
         console.print(f"[bold red]Error fetching URL:[/bold red] {e}")

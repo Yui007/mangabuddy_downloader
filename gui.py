@@ -29,6 +29,7 @@ class MangaDownloaderGUI(QMainWindow):
         # Store selected chapters
         self.selected_chapters = []
         self.chapters = []
+        self.manga_metadata = {}
         
         # Set up the dark theme
         self.setup_theme()
@@ -404,12 +405,14 @@ class MangaDownloaderGUI(QMainWindow):
         self.scraping_thread.result_signal.connect(self.on_scraping_finished)
         self.scraping_thread.start()
         
-    def on_scraping_finished(self, manga_title, chapters):
+    def on_scraping_finished(self, metadata, chapters):
         """Handle the result of the scraping operation"""
         self.scrape_button.setEnabled(True)
         self.url_input.setEnabled(True)
         
-        if manga_title and chapters:
+        if metadata and chapters:
+            self.manga_metadata = metadata
+            manga_title = self.manga_metadata.get("Title", "Unknown Title")
             self.log_message(f"Successfully scraped manga: {manga_title}")
             self.log_message(f"Found {len(chapters)} chapters")
             
@@ -549,7 +552,8 @@ class MangaDownloaderGUI(QMainWindow):
             manga_title,
             conversion_format,
             delete_images,
-            MAX_CHAPTER_THREADS
+            MAX_CHAPTER_THREADS,
+            self.manga_metadata
         )
         self.download_thread.progress_signal.connect(self.update_progress)
         self.download_thread.log_signal.connect(self.log_message)
@@ -592,7 +596,7 @@ class MangaDownloaderGUI(QMainWindow):
 
 class ScrapingThread(QThread):
     """Thread for scraping manga details"""
-    result_signal = pyqtSignal(str, list)  # manga_title, chapters
+    result_signal = pyqtSignal(dict, list)  # metadata, chapters
     
     def __init__(self, url):
         super().__init__()
@@ -601,11 +605,11 @@ class ScrapingThread(QThread):
     def run(self):
         """Run the scraping operation"""
         try:
-            manga_title, chapters = get_manga_details(self.url)
-            self.result_signal.emit(manga_title, chapters)
+            metadata, chapters = get_manga_details(self.url)
+            self.result_signal.emit(metadata, chapters)
         except Exception as e:
             print(f"Error in scraping thread: {e}")
-            self.result_signal.emit(None, None)
+            self.result_signal.emit({}, [])
 
 class DownloadThread(QThread):
     """Thread for downloading chapters"""
@@ -613,13 +617,14 @@ class DownloadThread(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
     
-    def __init__(self, selected_chapters, manga_title, conversion_format, delete_images, max_chapter_threads):
+    def __init__(self, selected_chapters, manga_title, conversion_format, delete_images, max_chapter_threads, manga_metadata=None):
         super().__init__()
         self.selected_chapters = selected_chapters
         self.manga_title = manga_title
         self.conversion_format = conversion_format
         self.delete_images = delete_images
         self.max_chapter_threads = max_chapter_threads
+        self.manga_metadata = manga_metadata if manga_metadata else {}
         
     def run(self):
         """Run the download operation"""
@@ -723,7 +728,7 @@ class DownloadThread(QThread):
                                 if success:
                                     self.log_signal.emit(f"Converted to PDF: {output_path}")
                             elif self.conversion_format == "cbz":
-                                success = convert_images_to_cbz(image_paths, output_path)
+                                success = convert_images_to_cbz(image_paths, output_path, self.manga_metadata)
                                 if success:
                                     self.log_signal.emit(f"Converted to CBZ: {output_path}")
                             
