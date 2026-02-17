@@ -30,7 +30,7 @@ async def main_async(): # New async main function
             continue
 
         with console.status("[bold yellow]Scraping manga details...[/bold yellow]", spinner="dots"):
-            manga_metadata, chapters = get_manga_details(manga_url)
+            manga_metadata, chapters = await get_manga_details(manga_url)
 
         if not manga_metadata or not chapters:
             console.print("[bold red]Could not retrieve manga details. Please check the URL or your internet connection.[/bold red]")

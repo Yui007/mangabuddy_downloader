@@ -525,9 +525,12 @@ class MangaDownloaderGUI(QMainWindow):
         # Get delete images option
         delete_images = self.delete_images_checkbox.isChecked()
         
-        # Get manga title from URL or scraping result
-        manga_url = self.url_input.text().strip()
-        manga_title = manga_url.split("/")[-1].replace("-", " ").title()
+        # Prefer scraped title; fallback to URL slug (handles trailing slash).
+        manga_title = str(self.manga_metadata.get("Title", "")).strip()
+        if not manga_title:
+            manga_url = self.url_input.text().strip().rstrip("/")
+            manga_slug = manga_url.split("/")[-1] if manga_url else ""
+            manga_title = manga_slug.replace("-", " ").title() if manga_slug else "Unknown Title"
         
         # Disable UI during download
         self.download_button.setEnabled(False)
@@ -605,7 +608,7 @@ class ScrapingThread(QThread):
     def run(self):
         """Run the scraping operation"""
         try:
-            metadata, chapters = get_manga_details(self.url)
+            metadata, chapters = asyncio.run(get_manga_details(self.url))
             self.result_signal.emit(metadata, chapters)
         except Exception as e:
             print(f"Error in scraping thread: {e}")

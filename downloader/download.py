@@ -1,44 +1,47 @@
 import os
-import time
-import asyncio # Add this import
-from concurrent.futures import ThreadPoolExecutor
+import re
+import asyncio
 
-import cloudscraper
+import httpx
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn, TimeRemainingColumn
 
 from downloader.scraper import get_image_urls, BASE_HEADERS
-from config import MAX_IMAGE_THREADS, RETRY_ATTEMPTS, DOWNLOAD_PATH
+from config import MAX_IMAGE_THREADS, RETRY_ATTEMPTS, DOWNLOAD_PATH, HTTP_TIMEOUT
 
 console = Console()
 
-# cloudscraper init
-scraper = cloudscraper.create_scraper(
-    browser={"browser": "chrome", "platform": "windows", "mobile": False}
-)
+def sanitize_filename(name: str) -> str:
+    return re.sub(r'[\\/*?:"<>|]', "_", name)
 
-console = Console()
 
-def download_image(scraper, url: str, path: str, chapter_url: str, retries: int = RETRY_ATTEMPTS):
+async def download_image(
+    client: httpx.AsyncClient,
+    url: str,
+    path: str,
+    chapter_url: str,
+    retries: int = RETRY_ATTEMPTS,
+):
     """
     Downloads an image from a URL to a specified path with retries.
     """
     for attempt in range(retries):
         try:
-            # Add Referer header dynamically for cloudscraper
             headers = BASE_HEADERS.copy()
-            headers["Referer"] = chapter_url # Use the chapter_url as the Referer
+            headers["Referer"] = chapter_url
 
-            response = scraper.get(url, headers=headers, stream=True, timeout=10)
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
-            with open(path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+            if not response.content:
+                raise ValueError("Empty image payload")
+
+            with open(path, "wb") as f:
+                f.write(response.content)
             return True
-        except Exception as e: # Catching general Exception for cloudscraper errors
+        except Exception as e:
             console.print(f"[bold yellow]Attempt {attempt + 1}/{retries} failed for {url}:[/bold yellow] {e}")
             if attempt < retries - 1:
-                time.sleep(2 ** attempt) # Exponential backoff
+                await asyncio.sleep(2 ** attempt)
             else:
                 console.print(f"[bold red]Failed to download image from {url} after {retries} attempts.[/bold red]")
                 return False
@@ -51,73 +54,59 @@ async def download_chapter(chapter_url: str, manga_title: str, chapter_name: str
     local_console.print(f"Downloading chapter: [bold blue]{chapter_name}[/bold blue]")
     
     # Create directory for the manga and chapter
-    manga_dir = os.path.join(DOWNLOAD_PATH, manga_title.replace(" ", "_"))
-    chapter_dir = os.path.join(manga_dir, chapter_name.replace(" ", "_"))
+    manga_dir = os.path.join(DOWNLOAD_PATH, sanitize_filename(manga_title))
+    chapter_dir = os.path.join(manga_dir, sanitize_filename(chapter_name))
     os.makedirs(chapter_dir, exist_ok=True)
 
-    # Get image URLs from the chapter URL
-    image_urls = await get_image_urls(chapter_url) # Await the async function
-    if not image_urls:
-        local_console.print(f"[bold red]No images found for {chapter_name}. Skipping download.[/bold red]")
-        return chapter_dir # Return chapter_dir even if no images found
-    
-    progress_context = None # Initialize to None
-    # Use overall_progress to add a task for this chapter's image downloads
-    # If overall_progress is None (for standalone testing), create a temporary one.
-    if overall_progress is None:
-        progress_context = Progress(
-            TextColumn("[bold blue]{task.description}", justify="right"),
-            BarColumn(bar_width=None),
-            "[progress.percentage]{task.percentage:>3.1f}%",
-            "•",
-            TransferSpeedColumn(),
-            "•",
-            TimeRemainingColumn(),
-            console=local_console,
-        )
-        progress_context.__enter__() # Manually enter the context
-        progress = progress_context
-    else:
-        progress = overall_progress
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
+        image_urls = await get_image_urls(chapter_url, client=client)
+        if not image_urls:
+            local_console.print(f"[bold red]No images found for {chapter_name}. Skipping download.[/bold red]")
+            return chapter_dir
 
-    task = progress.add_task(f"[cyan]Downloading {chapter_name} images...", total=len(image_urls))
-    
-    # Use ThreadPoolExecutor for concurrent image downloads
-    # Note: ThreadPoolExecutor is not ideal for async functions.
-    # For truly async image downloads, aiohttp or similar would be better.
-    # However, for simplicity and to integrate cloudscraper, we'll keep this for now.
-    with ThreadPoolExecutor(max_workers=MAX_IMAGE_THREADS) as executor:
-        futures = []
-        loop = asyncio.get_event_loop() # Get the current event loop
-        for i, img_url in enumerate(image_urls):
-            img_path = os.path.join(chapter_dir, f"page_{i+1}.png") # Use page_x.png for consistent naming
-            futures.append(loop.run_in_executor(executor, download_image, scraper, img_url, img_path, chapter_url, RETRY_ATTEMPTS))
-        
-        # Await all futures
-        for future in asyncio.as_completed(futures):
-            if await future: # Await the future result
-                progress.update(task, advance=1)
-            else:
-                pass
-    
-    # Ensure the task is completed and removed from the progress bar
-    progress.remove_task(task)
+        progress_context = None
+        if overall_progress is None:
+            progress_context = Progress(
+                TextColumn("[bold blue]{task.description}", justify="right"),
+                BarColumn(bar_width=None),
+                "[progress.percentage]{task.percentage:>3.1f}%",
+                "•",
+                TransferSpeedColumn(),
+                "•",
+                TimeRemainingColumn(),
+                console=local_console,
+            )
+            progress_context.__enter__()
+            progress = progress_context
+        else:
+            progress = overall_progress
 
-    # If a temporary progress context was created, exit it.
-    if overall_progress is None and progress_context is not None: # Check if it was actually created
-        progress_context.__exit__(None, None, None)
+        task = progress.add_task(f"[cyan]Downloading {chapter_name} images...", total=len(image_urls))
+        semaphore = asyncio.Semaphore(MAX_IMAGE_THREADS)
+
+        async def download_single(index: int, img_url: str):
+            ext = os.path.splitext(img_url.split("?")[0])[1] or ".jpg"
+            img_path = os.path.join(chapter_dir, f"page_{index + 1}{ext}")
+            async with semaphore:
+                ok = await download_image(client, img_url, img_path, chapter_url, RETRY_ATTEMPTS)
+            progress.update(task, advance=1)
+            return ok
+
+        await asyncio.gather(*(download_single(i, url) for i, url in enumerate(image_urls)))
+
+        progress.remove_task(task)
+        if progress_context is not None:
+            progress_context.__exit__(None, None, None)
 
     local_console.print(f"[bold green]Finished downloading {chapter_name}[/bold green]")
-    return chapter_dir # Return chapter_dir for conversion
+    return chapter_dir
 
 if __name__ == "__main__":
     # Example usage for testing
     test_manga_title = "Eleceed"
     test_chapter_name = "Chapter 1"
-    test_chapter_url = "https://mangabuddy.com/eleceed-chapter-1" # This URL needs to be scraped for actual image links
+    test_chapter_url = "https://mangabuddy.com/eleceed-chapter-1"
 
-    # Need to run the async function
-    import asyncio
     async def test_download():
         await download_chapter(test_chapter_url, test_manga_title, test_chapter_name)
     
