@@ -15,7 +15,7 @@ A modular, threaded manga downloader for MangaBuddy with an interactive CLI and 
 *   **Configurable Cleanup:** Option to automatically delete original images after conversion
 *   **Parallel Downloads:** Multi-threaded chapter downloads with concurrent image downloads for speed
 *   **Robust Error Handling:** Retry mechanisms and proper error messages for failed downloads
-*   **Cloudflare Bypass:** Uses Playwright and cloudscraper to handle Cloudflare protection
+*   **Lightweight Scraping:** Uses direct HTTP parsing (`httpx`) with no browser automation dependency
 *   **CBZ Metadata:** Automatically embeds a `ComicInfo.xml` file with manga details (title, summary, genre, etc.) into CBZ files.
 
 ## 🚀 Installation
@@ -74,11 +74,7 @@ You can adjust settings in `config.py`:
 | `DOWNLOAD_PATH` | Base directory for downloads | `./downloads/` |
 | `DELETE_IMAGES_AFTER_CONVERSION` | Default choice for deleting images after conversion | `False` |
 | `RETRY_ATTEMPTS` | Number of times to retry a failed download | 3 |
-| `PLAYWRIGHT_HEADLESS` | Run browser in headless mode | `True` |
-| `PLAYWRIGHT_WAIT_AFTER_NAV` | Wait time after navigation (ms) | 500 |
-| `PLAYWRIGHT_WARNING_BUTTON_TIMEOUT` | Timeout for age warning button (ms) | 5000 |
-| `PLAYWRIGHT_WAIT_AFTER_WARNING_CLICK` | Wait time after clicking warning (ms) | 2000 |
-| `PLAYWRIGHT_IMAGE_LOAD_WAIT` | Wait time for images to load (ms) | 5000 |
+| `HTTP_TIMEOUT` | HTTP timeout in seconds for page/image requests | 20 |
 
 ## 📁 Project Structure
 
@@ -88,8 +84,8 @@ mangabuddy_downloader/
 ├── gui.py           # PyQt6 GUI module
 ├── downloader/
 │   ├── __init__.py
-│   ├── scraper.py   # Scrapes manga title and chapter list using Playwright
-│   ├── download.py  # Handles threaded chapter and image downloads using cloudscraper
+│   ├── scraper.py   # Scrapes manga details/chapters and chapter images via HTTP + HTML parsing
+│   ├── download.py  # Handles async chapter and image downloads with retries
 │   ├── converter.py # Converts images to PDF or CBZ
 │   ├── metadata.py  # Generates ComicInfo.xml for CBZ files
 │   └── utils.py     # Helper functions
